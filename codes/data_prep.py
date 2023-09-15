@@ -13,9 +13,44 @@ import os
 from datetime import timedelta
 
 import memory_aux
+from gluonts.dataset.pandas import PandasDataset
+
+import matplotlib.pyplot as plt
+from gluonts.mx import DeepAREstimator
+from gluonts.mx.trainer import Trainer
 
 
-def import_dataset(data_path):
+
+def data_prep_deepAR(df_complete, round_date, date_column, key_column, target_column):
+    
+
+    data2 = df_complete[[date_column, key_column, target_column]]
+    
+    data2 = pd.pivot_table(data = data2, columns = key_column,
+                                    index = date_column, values = target_column)#.dropna(thresh=25, axis=1)
+    data2 = data2.fillna(0)
+    
+    data2 = pd.melt(data2.reset_index(), id_vars=date_column, var_name=key_column, value_name=target_column)
+
+    
+    train = data2.loc[data2['Date'] <= round_date]
+    valid = data2.loc[(data2['Date'] > round_date) & (data2['Date'] < '2030-01-01')]    
+    data2 = memory_aux.reduce_mem_usage(data2)
+    train = memory_aux.reduce_mem_usage(train)
+    valid = memory_aux.reduce_mem_usage(valid)
+    
+    return data2, train, valid
+
+def change_pred_name(df):
+    
+    pred_col = [x for x in df.columns if 'pred' in x or 'Pred' in x]
+    print(pred_col)
+    df = df.rename(columns = {pred_col[0]: 'Predictions'})
+    
+    return df
+
+def import_dataset(data_path, target_column, date_column, higher_level, lower_level,
+                   key_column):
     print('Files')
     print(os.listdir(data_path))
 
@@ -35,8 +70,8 @@ def import_dataset(data_path):
     print('Size Store ordinal feature created')
     
 
-    features_df = pd.merge(features_df, stores_df, how = 'left', on = ['Store'])
-    features_df['Date'] = pd.to_datetime(features_df['Date'], format='%d/%m/%Y')
+    features_df = pd.merge(features_df, stores_df, how = 'left', on = [higher_level])
+    features_df[date_column] = pd.to_datetime(features_df[date_column], format='%d/%m/%Y')
     print('Store features included on Sales Dataset')
     # Check Date
     
@@ -53,26 +88,27 @@ def import_dataset(data_path):
     print('Most Recent data not avaible for CPI and Unployment')
     
     sales_df = sales_df.drop(['IsHoliday'], axis  = 1)
-    sales_df['Date'] = pd.to_datetime(sales_df['Date'], format='%d/%m/%Y')
+    sales_df[date_column] = pd.to_datetime(sales_df[date_column], format='%d/%m/%Y')
     print('Ajusted date format for sales data and droped feature duplicated')
 
-    df_sales_final = pd.merge(sales_df, features_df, how = 'left', on = ['Date',
-                                                                      'Store'])
+    df_sales_final = pd.merge(sales_df, features_df, how = 'left', on = [date_column,
+                                                                      higher_level])
     del stores_df, sales_df,features_df
     print('Final merge realized and dataframes deleted')
     
     print('Create key for Store-Department')
-    df_sales_final['key_Store_Dept'] = df_sales_final['Store'].astype(str) + '_' +  df_sales_final[
-        'Dept'].astype(str) 
+    df_sales_final[key_column] = df_sales_final[higher_level].astype(str) + '_' +  df_sales_final[
+        lower_level].astype(str) 
     
-    df_sales_final.sort_values(['Store', 'Dept', 'Date'], inplace = True)
+    df_sales_final.sort_values([higher_level, lower_level, date_column], inplace = True)
     # df_sales_final.drop(['Store', 'Dept'], axis = 1, inplace = True)
     df_sales_final.reset_index(drop = False, inplace = True)    
     print('Values sorted by store, dept and date')
+    df_sales_final[target_column][df_sales_final[target_column] < 0] = 0
 
     df_sales_final = memory_aux.reduce_mem_usage(df_sales_final)
 
-    df_sales_final = df_sales_final[['Date', 'key_Store_Dept', 'Store', 'Dept', 'Weekly_Sales', 'Temperature',
+    df_sales_final = df_sales_final[[date_column, key_column, higher_level, lower_level, target_column, 'Temperature',
                          'Fuel_Price', 'MarkDown1', 'MarkDown2',
            'MarkDown3', 'MarkDown4', 'MarkDown5', 'CPI', 'Unemployment',
            'IsHoliday', 'Size', 'Size_Type']]
@@ -81,7 +117,24 @@ def import_dataset(data_path):
     
     return df_sales_final
     
+def groupby_store(df_complete, higher_level, lower_level, date_column, target_column, key_column):
+    
+    aggregation_dict = {target_column: 'sum'}
+    for column in df_complete.columns:
+        if column != target_column and column != date_column and column != higher_level \
+            and column != key_column and column != lower_level:
+            aggregation_dict[column] = 'mean'
+    
+    df_group_store = df_complete.groupby([higher_level, date_column]).agg(aggregation_dict).reset_index()
+    
+    
+    return df_group_store
 
+def group_all(df_group_store, date_column, target_column):
+    
+    df_agg_all = df_group_store.groupby([date_column]).sum()[target_column].reset_index()
+    
+    return df_agg_all
 
 def count_obs_for_key(df_sales_final):
     

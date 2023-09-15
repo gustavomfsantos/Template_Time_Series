@@ -4,6 +4,8 @@ Created on Wed Aug 30 17:45:45 2023
 
 @author: gusta
 """
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 import pandas as pd
@@ -15,65 +17,142 @@ project_path = general_path + r'\Template_Time_Series'
 data_path = project_path + r'\data'
 codes_path = project_path + r'\codes'
 final_path = project_path + r'\final_files'
+models_path = project_path + r'\models_saved'
+hyper_path = project_path + r'\hyperparameters_saved'
 # get aux codes
 
 os.chdir(codes_path)
 # import memory_aux
 import data_prep
 import explore_data
-
+import modeling
+import evaluation
 
 # configs
 target_column = 'Weekly_Sales'
 date_column = 'Date'
+higher_level = 'Store'
+lower_level = 'Dept'
 key_column = 'key_Store_Dept'
+id_column = 'ID_column'
+pred_column = 'Predictions'
 data_freq = 'W-FRI'
 select_n = 1 #Number for highest volumes display on plots
-lags = 4 #lags for correlation analysis.
+lags = 8 #lags for correlation analysis.
 corr_limit = 0.3 #Correlation minimum Absolute Value to consider for features and target and lag target
+# split_ratio = 0.95
+horizon_range = 8
+prediction_length = horizon_range
 
+context_length = prediction_length
 
+learning_rate = 0.001
+patience = 20
 
-if __name__ == '__main__':
-    df_complete = data_prep.import_dataset(data_path)
+cells = 32 
+layers = 2
+epochs = 30
+drop_rate = 0.001
+n_samples = 200
+num_workers = 2
+lower_bound = 20
+higher_bound = 80
+
+round_date = pd.to_datetime('2012-08-31' ) #date to assume that is the last point of avaible data
+round_date_pred = pd.to_datetime('2012-10-26' ) 
+
+cv_iter = 50
+random_st = 42
+cv_option = 'Test_Size1_Gap_Horizon' #'Test_Size1_Gap_Horizon' ## 'Test_Size1_Gap_Horizon' or 'Alternative to other option
+cv_score = 'neg_mean_squared_error'
+cv_jobs = -1
+stantdardize_data = False
+models = [ 'LGBM'] # , 'XGB', 'RF', 'LGBM'
+
+def explore_dataset():
+    
+    df_complete = data_prep.import_dataset(data_path, target_column, date_column, higher_level, lower_level,
+                       key_column)
 
     print('Explore Target Data Agregate and get outliers dates')
     outliers_dates_agg = explore_data.check_all_data(df_complete, key_column, date_column, target_column)
     
-    print('Explore Target Data Agregate and Diff/Pct Change from target')
-    explore_data.check_diff_pct(df_complete, key_column, date_column, target_column, lags,
-                       corr_limit)
-    
-    print(f'Explore Target Data for {select_n} Stores with Highest Volumes')
-    explore_data.check_high_vol_store(df_complete, key_column, date_column, target_column, select_n)
-    
-    print(f'Explore Target Data for {select_n} Keys Combination with Highest Volumes')
-    explore_data.check_high_vol_key(df_complete, key_column, date_column, target_column, select_n)
+    explore_data.run_histograms_plots_heatmaps(df_complete, key_column, date_column, target_column,
+                                            select_n, lags, corr_limit, higher_level, lower_level)
 
-    print('Get histogram for predictors features for Store')
-    explore_data.features_by_store(df_complete, target_column, date_column, key_column, select_n)
+    print('Explore Data Done, Output is general outlier')
     
-    print('Explore Correlations between target and lagged target and also features inside key combination')
-    explore_data.get_corr_with_features_and_lags_key(df_complete, key_column, date_column, target_column,
-                                            select_n, lags, corr_limit)
+    return outliers_dates_agg
+
+
+
+#USE standard models
+def forecast_all_levels():
+    #Forecast Lower Levels - DeepAR model
+    df_complete = data_prep.import_dataset(data_path, target_column, date_column, higher_level, lower_level,
+                       key_column)
     
-    print('Explore Correlations between target and lagged target and also features for Store')
-    explore_data.get_corr_with_features_and_lags_store(df_complete, key_column, date_column, target_column,
-                                            select_n, lags, corr_limit)
+    df, train, valid = data_prep.data_prep_deepAR(df_complete, round_date, date_column, key_column, target_column)    
+
+    df_lower_preds, wmape_metric, df_lower_preds_future = modeling.deepAR_MeltDF(train, valid, target_column, 
+                                    key_column, date_column, data_freq, prediction_length,
+                      layers, cells, drop_rate, epochs, num_workers, lower_bound, higher_bound)  
     
-    ##After results from this Exploratory Analysis is done, see if it fit any transformation
-    # like normalization or standart scalling on the data.
+    df_lower_preds = data_prep.change_pred_name(df_lower_preds)
     
-    
-    
-    
-    #Do regression for minor hierarchy level - Key Combination
-    
-    
+    print('Accuracy Wheighted',1 - wmape_metric)
+    df_lower_preds.to_csv(os.path.join(final_path, 'Forecast_results_Lower_Level.csv'))
+    df_lower_preds_future.to_csv(os.path.join(final_path, 'Forecast_Future_Lower_Level.csv')) 
     
     
+    #Forecast Mid Level - LGBM Model but can be other
+    df_group_store =  data_prep.groupby_store(df_complete, higher_level, lower_level, 
+                                        date_column, target_column, key_column)
+        
+    hyperparameters_dict = modeling.dict_hyperparameters()
+
+    df_mid_level_pred = modeling.run_forecast(df_group_store, higher_level, date_column, 
+                                                        target_column, horizon_range, models_path, hyper_path,
+                      round_date, data_freq, lags, corr_limit, cv_iter, hyperparameters_dict,
+                      random_st, cv_option, cv_score, cv_jobs, models, stantdardize_data, 'Train')
+    
+    df_mid_level_pred_fut = modeling.run_forecast(df_group_store, higher_level, date_column, 
+                                                        target_column, horizon_range, models_path, hyper_path,
+                      round_date_pred, data_freq, lags, corr_limit, cv_iter, hyperparameters_dict,
+                      random_st, cv_option, cv_score, cv_jobs, models, stantdardize_data, 'Predict')
+    
+    df_mid_level_pred = data_prep.change_pred_name(df_mid_level_pred)
+    
+    df_mid_level_pred.to_csv(os.path.join(final_path, 'Forecast_results_Mid_Level.csv'))
+
+    #Forecast Higher Level - Exp Smothing
+    df_agg_all = data_prep.group_all(df_group_store, date_column, target_column)
+   
+    df_forecast_total, df_forecast_total_future = modeling.model_total_sales(df_agg_all, date_column, target_column, 
+                                                   pred_column, round_date, horizon_range) 
+    
+    df_forecast_total = data_prep.change_pred_name(df_forecast_total)
+   
+    return df_lower_preds, df_lower_preds_future, df_mid_level_pred, df_mid_level_pred_fut, df_forecast_total, df_forecast_total_future
+
+# Reconciliation is the process of combining forecasts from different levels of the hierarchy in a
+#  way that ensures consistency between the forecasts.
+
+
+
+
+if __name__ == '__main__':
     
     
+    print('Teste')
     
+    
+    # explore_dataset()
+    
+    df_lower_preds, df_lower_preds_future, df_mid_level_pred, df_mid_level_pred_fut, \
+    df_forecast_total, df_forecast_total_future = forecast_all_levels()
+    
+
+
     
     

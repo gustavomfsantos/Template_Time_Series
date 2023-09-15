@@ -154,18 +154,18 @@ def check_all_data(df_complete, key_column, date_column, target_column):
     return outliers_dates
 
     
-def check_high_vol_store(df_complete, key_column, date_column, target_column, select_n):
+def check_high_vol_store(df_complete, key_column, date_column, target_column, select_n, higher_level):
         
     print('Getting higher Volumes by Store')
-    df_store_vol = df_complete.groupby(['Store']).sum([target_column]).sort_values(
+    df_store_vol = df_complete.groupby([higher_level]).sum([target_column]).sort_values(
         by = target_column, ascending = False)
     list_higher_vols = list( df_store_vol.head(select_n).index)
     
-    df_store_agg = df_complete.groupby(['Store', date_column]).sum()[target_column].reset_index()
+    df_store_agg = df_complete.groupby([higher_level, date_column]).sum()[target_column].reset_index()
     print(f'Plotting for the {select_n} highest volumes')
     for store in list_higher_vols:
-        print('Store',store)
-        df = df_store_agg[df_store_agg['Store'] == store]
+        print(higher_level,store)
+        df = df_store_agg[df_store_agg[higher_level] == store]
         plt.figure(figsize=(10, 6))
         plt.plot(df[date_column], df[target_column])
         plt.title(f'Time Series Plot {store}')
@@ -296,24 +296,25 @@ def check_high_vol_key(df_complete, key_column, date_column, target_column, sele
     return 'Plots for Key combination Done'
 
 
-def features_by_store(df_complete, target_column, date_column, key_column, select_n):
+def features_by_store(df_complete, target_column, date_column, key_column, select_n, higher_level,
+                      lower_level):
     
      print('Getting higher Volumes by Key Combination')
-     df_store_vol = df_complete.groupby(['Store']).sum([target_column]).sort_values(
+     df_store_vol = df_complete.groupby([higher_level]).sum([target_column]).sort_values(
          by = target_column, ascending = False)
      list_higher_vols = list( df_store_vol.head(select_n).index)
      
      aggregation_dict = {target_column: 'sum'}
      for column in df_complete.columns:
-         if column != target_column and column != date_column and column != 'Store' \
-             and column != key_column and column != 'Dept':
+         if column != target_column and column != date_column and column != higher_level \
+             and column != key_column and column != lower_level:
              aggregation_dict[column] = 'mean'
      
-     df_group_store = df_complete.groupby(['Store', date_column]).agg(aggregation_dict).reset_index()
+     df_group_store = df_complete.groupby([higher_level, date_column]).agg(aggregation_dict).reset_index()
      for store in list_higher_vols:
-         df = df_group_store[df_group_store['Store'] == store]
+         df = df_group_store[df_group_store[higher_level] == store]
          # df.set_index(date_column, inplace = True)
-         df.drop(['Store'], axis = 1, inplace = True)
+         df.drop([higher_level], axis = 1, inplace = True)
          #Size is constant
          cols_to_analyse = [x for x in df.columns if date_column not in x and 'Size' not in x]
          for col in cols_to_analyse:
@@ -365,7 +366,7 @@ def features_by_store(df_complete, target_column, date_column, key_column, selec
  
     
 def get_corr_with_features_and_lags_key(df_complete, key_column, date_column, target_column,
-                                        select_n, lags, corr_limit):
+                                        select_n, lags, corr_limit, higher_level, lower_level):
     print('Getting higher Volumes by Key Combination')
     df_key_vol = df_complete.groupby([key_column]).sum([target_column]).sort_values(
         by = target_column, ascending = False)
@@ -375,7 +376,7 @@ def get_corr_with_features_and_lags_key(df_complete, key_column, date_column, ta
     for key in list_higher_vols:
         df = df_complete[df_complete[key_column] == key]
         df.set_index(date_column, inplace = True)
-        df.drop([key_column, 'Store', 'Dept'], axis = 1, inplace = True)
+        df.drop([key_column, higher_level, lower_level], axis = 1, inplace = True)
         num_lags = lags
         #The shift on target have to be negative in order to create a row
         #with past feature and future target in the same line. The goal is to see
@@ -436,24 +437,24 @@ def get_corr_with_features_and_lags_key(df_complete, key_column, date_column, ta
 
 
 def get_corr_with_features_and_lags_store(df_complete, key_column, date_column, target_column,
-                                        select_n, lags, corr_limit):
+                                        select_n, lags, corr_limit, higher_level, lower_level):
     print('Getting higher Volumes by Key Combination')
-    df_store_vol = df_complete.groupby(['Store']).sum([target_column]).sort_values(
+    df_store_vol = df_complete.groupby([higher_level]).sum([target_column]).sort_values(
         by = target_column, ascending = False)
     list_higher_vols = list( df_store_vol.head(select_n).index)
     
     aggregation_dict = {target_column: 'sum'}
     for column in df_complete.columns:
-        if column != target_column and column != date_column and column != 'Store' \
-            and column != key_column and column != 'Dept':
+        if column != target_column and column != date_column and column != higher_level \
+            and column != key_column and column != lower_level:
             aggregation_dict[column] = 'mean'
     
-    df_group_store = df_complete.groupby(['Store', date_column]).agg(aggregation_dict).reset_index()
+    df_group_store = df_complete.groupby([higher_level, date_column]).agg(aggregation_dict).reset_index()
     print(f'Getting Correlation for the {select_n} highest volumes for Stores')
     for store in list_higher_vols:
-        df = df_group_store[df_group_store['Store'] == store]
+        df = df_group_store[df_group_store[higher_level] == store]
         df.set_index(date_column, inplace = True)
-        df.drop(['Store'], axis = 1, inplace = True)
+        df.drop([higher_level], axis = 1, inplace = True)
         num_lags = lags
         #The shift on target have to be negative in order to create a row
         #with past feature and future target in the same line. The goal is to see
@@ -511,16 +512,40 @@ def get_corr_with_features_and_lags_store(df_complete, key_column, date_column, 
 
     return 'Correlation for Store combinations done'
 
-#Create a list to get most correlated features in above functions
+def run_histograms_plots_heatmaps(df_complete, key_column, date_column, target_column,
+                                        select_n, lags, corr_limit, higher_level, lower_level):
+    
+    print('Explore Target Data Agregate and Diff/Pct Change from target')
+    check_diff_pct(df_complete, key_column, date_column, target_column, lags,
+                        corr_limit)
+    
+    print(f'Explore Target Data for {select_n} Stores with Highest Volumes')
+    check_high_vol_store(df_complete, key_column, date_column, target_column, select_n, 
+    higher_level)
 
-#There is no way to make correlation with full data aggregate. The others features are not equal.
-#\But as store and key is possible.
+    
+    print(f'Explore Target Data for {select_n} Keys Combination with Highest Volumes')
+    check_high_vol_key(df_complete, key_column, date_column, target_column, select_n)
 
-#Next step is see possible data transformation and maybe create new features.
-
+    print('Get histogram for predictors features for Store')
+    features_by_store(df_complete, target_column, date_column, key_column, select_n, 
+    higher_level, lower_level)
+    
+    print('Explore Correlations between target and lagged target and also features inside key combination')
+    get_corr_with_features_and_lags_key(df_complete, key_column, date_column, target_column,
+                                            select_n, lags, corr_limit, higher_level, lower_level)
+    
+    print('Explore Correlations between target and lagged target and also features for Store')
+    get_corr_with_features_and_lags_store(df_complete, key_column, date_column, target_column,
+                                            select_n, lags, corr_limit, higher_level, lower_level)
+    
+    return "Plots, Histograms and Heatmaps Done!"
 
 
 
 if __name__ == '__main__':
+        
     
+
     print('teste')
+    
