@@ -4,14 +4,14 @@ Created on Wed Aug 30 17:45:45 2023
 
 @author: gusta
 """
+print('Import Packages')
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-
-
 import pandas as pd
 import numpy as np
 import os
-#get paths
+
+print('Paths')
 general_path = r'C:\Users\gusta\Desktop\Personal_Projects'
 project_path = general_path + r'\Template_Time_Series'
 data_path = project_path + r'\data'
@@ -19,16 +19,16 @@ codes_path = project_path + r'\codes'
 final_path = project_path + r'\final_files'
 models_path = project_path + r'\models_saved'
 hyper_path = project_path + r'\hyperparameters_saved'
-# get aux codes
 
-os.chdir(codes_path)
-# import memory_aux
+
+print('Import functions')
 import data_prep
 import explore_data
 import modeling
 import evaluation
 
-# configs
+print('Setting Configurations')
+print('Dataset configurations')
 target_column = 'Weekly_Sales'
 date_column = 'Date'
 higher_level = 'Store'
@@ -37,18 +37,22 @@ key_column = 'key_Store_Dept'
 id_column = 'ID_column'
 pred_column = 'Predictions'
 data_freq = 'W-FRI'
+
+print('Explore dataset configurations')
 select_n = 1 #Number for highest volumes display on plots
-lags = 8 #lags for correlation analysis.
 corr_limit = 0.3 #Correlation minimum Absolute Value to consider for features and target and lag target
-# split_ratio = 0.95
+lags = 8 #lags for correlation analysis.
+
+print('Prediction Configuration')
 horizon_range = 8
 prediction_length = horizon_range
-
 context_length = prediction_length
+round_date = pd.to_datetime('2012-08-31' ) #date to assume that is the last point of avaible data
+round_date_pred = pd.to_datetime('2012-10-26' ) 
 
+print('DeepAR configuration')
 learning_rate = 0.001
 patience = 20
-
 cells = 32 
 layers = 2
 epochs = 30
@@ -58,9 +62,7 @@ num_workers = 2
 lower_bound = 20
 higher_bound = 80
 
-round_date = pd.to_datetime('2012-08-31' ) #date to assume that is the last point of avaible data
-round_date_pred = pd.to_datetime('2012-10-26' ) 
-
+print('Machine learning algorithms and Cross validation configuration')
 cv_iter = 50
 random_st = 42
 cv_option = 'Test_Size1_Gap_Horizon' #'Test_Size1_Gap_Horizon' ## 'Test_Size1_Gap_Horizon' or 'Alternative to other option
@@ -85,8 +87,6 @@ def explore_dataset():
     return outliers_dates_agg
 
 
-
-#USE standard models
 def forecast_all_levels():
     #Forecast Lower Levels - DeepAR model
     df_complete = data_prep.import_dataset(data_path, target_column, date_column, higher_level, lower_level,
