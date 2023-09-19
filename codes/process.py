@@ -21,7 +21,7 @@ models_path = project_path + r'\models_saved'
 hyper_path = project_path + r'\hyperparameters_saved'
 
 
-print('Import functions')
+print('Import modules')
 import data_prep
 import explore_data
 import modeling
@@ -37,6 +37,7 @@ key_column = 'key_Store_Dept'
 id_column = 'ID_column'
 pred_column = 'Predictions'
 data_freq = 'W-FRI'
+data_seasonality = 52 #Weeks in a Year
 
 print('Explore dataset configurations')
 select_n = 1 #Number for highest volumes display on plots
@@ -88,7 +89,8 @@ def explore_dataset():
 
 
 def forecast_all_levels():
-    #Forecast Lower Levels - DeepAR model
+    
+    print('Lower Level Forecast - DeepAR')
     df_complete = data_prep.import_dataset(data_path, target_column, date_column, higher_level, lower_level,
                        key_column)
     
@@ -101,12 +103,12 @@ def forecast_all_levels():
     df_lower_preds = data_prep.change_pred_name(df_lower_preds)
     df_lower_preds_future = data_prep.change_pred_name(df_lower_preds_future)
     
-    print('Accuracy Wheighted',1 - wmape_metric)
+
     df_lower_preds.to_csv(os.path.join(final_path, 'Forecast_results_Lower_Level.csv'))
     df_lower_preds_future.to_csv(os.path.join(final_path, 'Forecast_Future_Lower_Level.csv')) 
     
     
-    #Forecast Mid Level - LGBM Model but can be other
+    print('Mid Level Forecast - LGBM')
     df_group_store =  data_prep.groupby_store(df_complete, higher_level, lower_level, 
                                         date_column, target_column, key_column)
         
@@ -126,17 +128,19 @@ def forecast_all_levels():
     df_mid_level_pred_fut = data_prep.change_pred_name(df_mid_level_pred_fut)
     
     df_mid_level_pred.to_csv(os.path.join(final_path, 'Forecast_results_Mid_Level.csv'))
+    df_mid_level_pred_fut.to_csv(os.path.join(final_path, 'Forecast_Future_Mid_Level.csv'))
 
-    #Forecast Higher Level - Exp Smothing
+    print('Top Level Forecast - Exp Smothing')
     df_agg_all = data_prep.group_all(df_group_store, date_column, target_column)
    
     df_forecast_total, df_forecast_total_future = modeling.model_total_sales(df_agg_all, date_column, target_column, 
-                                                   pred_column, round_date, horizon_range) 
+                                                   pred_column, data_seasonality, round_date, horizon_range) 
     
     df_forecast_total = data_prep.change_pred_name(df_forecast_total)
     df_forecast_total_future = data_prep.change_pred_name(df_forecast_total_future)
-    df_forecast_total.to_csv(os.path.join(final_path, 'Forecast_results_Total.csv'))
     
+    df_forecast_total.to_csv(os.path.join(final_path, 'Forecast_results_Total.csv'))
+    df_forecast_total_future.to_csv(os.path.join(final_path, 'Forecast_Future_Total.csv'))
     df_all_levels = modeling.set_data_togheter(df_complete, df_group_store, df_agg_all, date_column, higher_level, key_column, pred_column, id_column,
                           target_column)
     ###DO the reconciliantion
@@ -147,9 +151,10 @@ def forecast_all_levels():
     df_reconcile_fut.to_csv(os.path.join(final_path, 'Forecast_Future_Reconcile.csv')) 
     
     df_reconcile_scores = evaluation.evaluate_reconcile(df_reconcile, target_column, tags)
-    df_reconcile_fut.to_csv(os.path.join(final_path, 'Accuracy_Scores_Reconcile.csv')) 
     
-    return df_lower_preds, df_lower_preds_future, df_mid_level_pred, df_mid_level_pred_fut, df_forecast_total, df_forecast_total_future
+    df_reconcile_scores.to_csv(os.path.join(final_path, 'Accuracy_Scores_Reconcile.csv')) 
+    
+    return 'Forecast Done and Saved!'
 
 # Reconciliation is the process of combining forecasts from different levels of the hierarchy in a
 #  way that ensures consistency between the forecasts.
@@ -165,8 +170,7 @@ if __name__ == '__main__':
     
     # explore_dataset()
     
-    df_lower_preds, df_lower_preds_future, df_mid_level_pred, df_mid_level_pred_fut, \
-    df_forecast_total, df_forecast_total_future = forecast_all_levels()
+    forecast_all_levels()
     
 
 

@@ -39,11 +39,6 @@ Created on Thu Aug 31 18:11:35 2023
 
 import pandas as pd
 import numpy as np
-import itertools
-import datetime
-from datetime import datetime as dt
-from dateutil.relativedelta import *
-import json
 import pickle
 import time
 import warnings
@@ -55,7 +50,7 @@ import statsmodels.api as sm
 
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
-from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
@@ -237,14 +232,15 @@ def standard_scalling(X_train, X_test, y_train, y_test):
 
 
 
-def model_total_sales(df_agg_all, date_column, target_column, pred_column, round_date, horizon_range):
+def model_total_sales(df_agg_all, date_column, target_column, pred_column, 
+                      data_seasonality, round_date, horizon_range):
     
     train_data = df_agg_all[df_agg_all[date_column] <= round_date].set_index(date_column)
     test_data = df_agg_all[df_agg_all[date_column] > round_date]#.set_index(date_column)
     
   
 
-    s =  52  # Seasonal orders (weekly seasonality)
+    s =  data_seasonality  # Seasonal orders (weekly seasonality)
     
     model = ExponentialSmoothing(train_data, seasonal='add', seasonal_periods=s)
     results = model.fit()
@@ -258,6 +254,9 @@ def model_total_sales(df_agg_all, date_column, target_column, pred_column, round
     results_future = model_future.fit()
     forecast_future = results_future.forecast(steps=horizon_range)
     forecast_future = forecast_future.reset_index().rename(columns = {'index':date_column, 0: pred_column})
+    
+    forecast = memory_aux.reduce_mem_usage(forecast)
+    forecast_future = memory_aux.reduce_mem_usage(forecast_future)
     
     return forecast, forecast_future
 
@@ -715,7 +714,7 @@ def run_forecast(df_complete, key_column, date_column, target_column, horizon_ra
     elapsed_time = end_time - start_time
     print(f"Elapsed time For Store Forecast: {elapsed_time:.2f} seconds")
     print('Forecast Done')
-
+    df_forecast_final = memory_aux.reduce_mem_usage(df_forecast_final)
     return df_forecast_final
 
 
@@ -839,7 +838,7 @@ def set_data_togheter(df_complete, df_group_store, df_agg_all, date_column, high
     df_final = pd.concat([df_mid_high, df_key_full], axis = 0 )
     df_final['ds'] = pd.to_datetime(df_final['ds'])
 
-    
+    df_final = memory_aux.reduce_mem_usage(df_final)
     return df_final
 
 
@@ -1043,13 +1042,7 @@ def get_all_forecast(df_lower_preds, df_lower_preds_future, df_mid_level_pred, d
     
     return df_reconcile, tags, df_reconcile_fut
 
-def forecast_reconciliation():
-    #For the package we need make a dataframe with all time series stack and with
-    #a column id to identify the time series key and which hierarchy level it is.
-    #So it will forecast all of it
-    
-    
-    return 'done'
+
 
 
 if __name__ == '__main__':
