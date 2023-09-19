@@ -8,9 +8,54 @@ import os
 import pandas as pd
 import numpy as np
 
+from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_absolute_percentage_error
 
 def wmape(y_true, y_pred):
     return np.abs(y_true - y_pred).sum() / np.abs(y_true).sum()
+
+def evaluate_reconcile(df_reconcile, target_column, tags):
+    
+    #p_red é o resultado do reconcile
+    
+    pred_cols = [x for x in df_reconcile.columns if target_column not in x and 'ds' not in x]
+
+    rmse = dict()
+    wape = dict()
+    for model_ in pred_cols:
+        rmse_ = mean_squared_error(df_reconcile[target_column].values, df_reconcile[model_].values, squared=False)/1e3
+        wape_ = wmape(df_reconcile[target_column], df_reconcile[model_])
+        # get only the model name
+        model__ = model_.split('/')[-1]
+        rmse[model__] = rmse_
+        wape[model__] = wape_
+    df_rmse = pd.DataFrame(rmse, index=['RMSE']).T.sort_values('RMSE')
+    df_wape = pd.DataFrame(wape, index=['WMAPE']).T.sort_values('WMAPE')
+    df_acc = pd.merge(df_rmse, df_wape,left_index=True, right_index=True )
+    df_acc['Acc_WMAPE'] = 1 - df_acc['WMAPE']
+    #Ind Acc
+    
+    
+    #get levels hierarchy
+    for tag in tags:
+        print(tag)
+        df = df_reconcile[df_reconcile.index.isin(tags[tag])]
+        df_acc_aux = pd.DataFrame()
+        for model_ in pred_cols:
+            rmse_ = mean_squared_error(df[target_column].values, df[model_].values, squared=False)/1e3
+            wape_ = wmape(df[target_column], df[model_])
+            model__ = model_.split('/')[-1]
+            rmse[model__] = rmse_
+            wape[model__] = wape_
+        df_rmse = pd.DataFrame(rmse, index=[f'RMSE_{tag}']).T.sort_values(f'RMSE_{tag}')
+        df_wape = pd.DataFrame(wape, index=[f'WMAPE_{tag}']).T.sort_values(f'WMAPE_{tag}')
+        df_acc_aux = pd.merge(df_rmse, df_wape,left_index=True, right_index=True )
+        df_acc_aux[f'Acc_WMAPE_{tag}'] = 1 - df_acc_aux[f'WMAPE_{tag}']
+        df_acc = pd.merge(df_acc, df_acc_aux,left_index=True, right_index=True )
+        
+    return df_acc
+
+
 
 #Evaluate on real values, not using  CV results
 def evaluate_higher_level_forecast(final_path, higher_level, models, target_column):

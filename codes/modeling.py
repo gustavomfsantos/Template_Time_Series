@@ -36,7 +36,7 @@ Created on Thu Aug 31 18:11:35 2023
 #in different subsets of the forecasting horizon. This method is described in reference.
 
 
-from datetime import timedelta
+
 import pandas as pd
 import numpy as np
 import itertools
@@ -52,7 +52,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings('ignore')
 
 import statsmodels.api as sm
-from statsmodels.tsa.statespace.sarimax import SARIMAX
+
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
@@ -63,12 +63,16 @@ from sklearn.preprocessing import StandardScaler
 import xgboost as xgb
 import lightgbm as lgb
 from sklearn.linear_model import ElasticNet
-import statsmodels.api as sm
+
 import joblib
-import matplotlib.pyplot as plt
+
 from gluonts.mx import DeepAREstimator
 from gluonts.mx.trainer import Trainer
 from gluonts.dataset.pandas import PandasDataset
+from hierarchicalforecast.utils import aggregate
+from hierarchicalforecast.methods import BottomUp, TopDown, MinTrace, ERM, MiddleOut
+
+from hierarchicalforecast.core import HierarchicalReconciliation
 
 import memory_aux
 #Function to Create Hyperparameters Dictionary
@@ -813,24 +817,231 @@ def group_lower_level_forecast(all_preds, all_preds_future,
     
     return all_preds_agg, all_preds_future_agg
 
-def get_all_forecast(df_lower_preds, df_final, df_forecast_total, date_column, id_column, pred_column):
-    #Get only date, id column and prediction
-    #also create sum matrix
-    ####CREATE FOrecast sum total
-    df_final[id_column] = 'Store_' + df_final['Store'].astype(str)    
-    df_lower_preds[id_column] = 'Store_Dept_' + df_lower_preds['key_Store_Dept'].astype(str) 
-    df_forecast_total[id_column] = 'Total' 
-    df_forecast_total = df_forecast_total.reset_index()
+def set_data_togheter(df_complete, df_group_store, df_agg_all, date_column, higher_level, key_column, pred_column, id_column,
+                      target_column):
     
-    df_lower_preds = df_lower_preds[[date_column, id_column, pred_column]]
-    df_final = df_final[[date_column, id_column, pred_column]]
-    df_forecast_total = df_forecast_total[[date_column, id_column, pred_column]]
-    #Ajust key names
+    df_group_store[id_column] = 'Total' + '/' + df_group_store[higher_level].astype(str)    
+    df_complete[id_column] = 'Total' +'/' + df_complete[key_column].str.split('_').str[0] \
+        + '/' + df_complete[key_column]
+    
+    df_agg_all[id_column] = 'Total' 
 
-    df_all = pd.concat([df_final, df_lower_preds, df_forecast_total], axis=0)
+    
+    df_mid_high = pd.concat([df_agg_all, df_group_store], axis=0).reset_index(drop = True)
+    df_mid_high = df_mid_high[['Date', target_column, 'ID_column']]
+    df_mid_high = df_mid_high.rename(columns = {date_column:'ds', 'ID_column':'unique_id' ,
+                                                target_column:'y'})
+    
+    df_key_full = df_complete[[date_column, target_column, id_column]]
+    df_key_full = df_key_full.rename(columns = {date_column:'ds', 'ID_column':'unique_id',
+                                                target_column:'y'})
+    
+    df_final = pd.concat([df_mid_high, df_key_full], axis = 0 )
+    df_final['ds'] = pd.to_datetime(df_final['ds'])
+
+    
+    return df_final
+
+
+def get_all_forecast(df_lower_preds, df_lower_preds_future, df_mid_level_pred, df_mid_level_pred_fut, \
+                     df_forecast_total, df_forecast_total_future, date_column, id_column, pred_column, key_column, higher_level,
+                     lower_level, target_column, df_all_levels):
+    
+    df_all_levels_filter = df_all_levels[(df_all_levels['ds'] < df_lower_preds[date_column].min()) & (
+        df_all_levels['ds'] >= '2012-07-13')]
+    df_all_levels_filter[key_column] = df_all_levels_filter['unique_id'].str.split('/').str[2]
+    s = df_all_levels_filter.groupby(key_column).count()
+    filter_count = s[s['unique_id'] < 8].index.tolist()
+    
+    check_index = list(df_lower_preds.set_index(key_column).index.difference(df_all_levels_filter.set_index(key_column).index) )
+    final_list = set( filter_count + check_index)
+    
+    # check_index1 = list(df_all_levels_filter.set_index(key_column).index.difference(df_lower_preds.set_index(key_column).index) )
+    df_filter_index = df_lower_preds[df_lower_preds[key_column].isin(final_list)]
+    
+    df_all_levels_filter = df_all_levels_filter[~df_all_levels_filter[key_column].isin(final_list)]
+    df_all_levels_filter = df_all_levels_filter.drop([key_column], axis = 1).set_index('unique_id')
+    #Create a dataframe with necessary format to fit 
+    #Lower level as based. To merge total, use only date
+    #To merget mi level, create a store column in the lower level
+    df_lower_preds[higher_level] = df_lower_preds[key_column].str.split('_').str[0]
+    df_mid_level_pred[higher_level] = df_mid_level_pred[higher_level].astype(str)
+    df_forecast_total['Total'] = 'Total' 
+    df_aux = pd.merge(df_lower_preds, df_forecast_total.drop(['Predictions', 'Weekly_Sales'], axis = 1), on = date_column, how = 'left').reset_index(drop = True)
+    df_aux = pd.merge(df_aux, df_mid_level_pred.drop(['Predictions', 'Weekly_Sales'], axis = 1), on = [date_column,higher_level], how = 'left').reset_index(drop = True)
+    df_aux =  df_aux[['Date','Total', 'Store','key_Store_Dept', 'Predictions']]
+    df_aux = df_aux.rename(columns = {date_column:'ds', pred_column:'y'})
+    print('Valitadion dataframe with predictions and real values at lower level. This dataframe is created to fit the aggregate function')
+    
+    df_aux = df_aux[~df_aux[key_column].isin(final_list)]
+    
+    spec = [['Total'],
+            ['Total', higher_level],
+            ['Total', higher_level, key_column]]
+    
+    df_predictions, sum_matrix, tags = aggregate(df_aux, spec)
+    print('Sum matrix created and dataframe with unique_id. But the prediction at highers levels is not correct. \
+          It is a Sum from lower levels. Will fix it merging with the predictions achieved')
+    #Usually this function is used to format the train set, but we are using to 
+    #set the predictions at the format the library requires
+    # but predictions does not have the correct agg predictions
+    
+ 
+    
+    #Next chalenge is set the id_columns the same way to merge the real values.
+    #This new dataframe will be the dataframe with real value
+    df_mid_level_pred[id_column] = 'Total' + '/' + df_mid_level_pred[higher_level].astype(str)    
+    df_lower_preds[id_column] = 'Total' +'/' + df_lower_preds[key_column].str.split('_').str[0] \
+        + '/' + df_lower_preds[key_column]
+    df_forecast_total[id_column] = 'Total' 
+    print('ID_column created for all three levels')
+    
+    df_forecast_total = df_forecast_total.reset_index()
+    df_all = pd.concat([df_forecast_total, df_mid_level_pred, df_lower_preds], axis=0).reset_index(drop = True)
+    df_all = df_all[['Date', 'Predictions', 'Weekly_Sales', 'ID_column']]
+    print("Dataframe with real values and predictions on test set created")
+   
+   
+    #Ajust df_predictions with correct hiher levels predictions
+    df_predictions = df_predictions.reset_index()
+    df_mid_high = pd.concat([df_forecast_total, df_mid_level_pred], axis=0).reset_index(drop = True)
+    df_mid_high = df_mid_high[['Date', 'Predictions', 'ID_column']]
+    df_mid_high = df_mid_high.rename(columns = {date_column:'ds', 'ID_column':'unique_id' })
+    
+    df_predictions = df_predictions.merge(df_mid_high, on=['ds','unique_id'], how='left')
+    df_predictions['y'] = df_predictions['Predictions'].fillna(df_predictions['y'])
+    df_predictions = df_predictions.drop(columns=['Predictions'])
+
+    print('Dataframe predictions with correct mid and high level predictions. The column y is the prediction in this dataframe')
+    df_predictions = df_predictions.rename(columns = {'y':'Mixed_Models'}).set_index('unique_id')
+    print('Y_hat_df defined')
+    #Y_hat_df is the predictions in the format unique_id:ID_column ; date:ds ;  predictions:model_name
+    #Y_df is the same Y_hat_df but with an adicional column, the real values target_column:y
+    
+    #In the examples provided, Y_hat_df and Y_df dont have observations on same date.
+    #Y_hat_df has the predictions on test set and Y_df has observations used on tain set, not having observations used on test
     
     
-    return 'done'
+    print('Y_hat defined with 4 months instead of 2')
+    
+    print(len(df_all_levels_filter.reset_index()['unique_id'].unique()))
+    print(len(df_predictions.reset_index()['unique_id'].unique()))
+    #This case df_all is Y_df. Lets ajust
+   
+   
+    
+   
+    #Y_df = Y_df.reset_index()
+    #the Y_hat_df is df_predictions. Is already on format
+    #Y_hat_df sao as previsoes.
+    
+    print('Y_df is the dataframe with unique_id, date (ds) and real values y (target_col)')
+    print('Y_hat_df is the dataframe with unique_id, date (ds) and the predictions at all levels.')
+    
+   
+    
+    reconcilers = [
+                BottomUp(),
+               TopDown(method='forecast_proportions'),
+               # TopDown(method='average_proportions'),
+               # TopDown(method='proportion_averages'),
+               MiddleOut(middle_level='Total/Store',
+              top_down_method='forecast_proportions'),
+               MinTrace(method='ols'),
+               
+                MinTrace(method='wls_struct'),
+ 
+              ]
+
+    rec_model = HierarchicalReconciliation(reconcilers=reconcilers)
+    
+    p_rec = rec_model.reconcile(Y_hat_df = df_predictions,
+    S = sum_matrix,  tags = tags, Y_df = df_all_levels_filter)
+    ######### reconcile done with training used on predictions, to the test to 
+    df_all = df_all.rename(columns = {'Date':'ds', 'Predictions':'Mixed_Models', 'Weekly_Sales':'y', 'ID_column':'unique_id'})
+    Y_df = df_all[['unique_id',	'ds',	'y']].set_index('unique_id')
+   
+    df_reconcile = pd.merge(p_rec, Y_df, on = ['ds', 'unique_id'], how = 'left').rename(columns = 
+                                                                                        {'y':target_column})
+    
+    pred_cols = [x for x in df_reconcile.columns if target_column not in x and 'ds' not in x]
+    
+    for col in pred_cols:
+        df_reconcile[col][df_reconcile[col] < 0] = 0
+        df_reconcile[col] = df_reconcile[col].fillna(0)
+    
+    print('Reconcile model created. Real values append to dataframe')
+
+
+    #For Future
+    
+    ###Create same first steps for future forecast
+    df_lower_preds_future[higher_level] = df_lower_preds_future[key_column].str.split('_').str[0]
+    df_mid_level_pred_fut[higher_level] = df_mid_level_pred_fut[higher_level].astype(str)
+    df_forecast_total_future['Total'] = 'Total' 
+    df_aux_fut = pd.merge(df_lower_preds_future, df_forecast_total_future.drop(['Predictions'], axis = 1), on = date_column, how = 'left').reset_index(drop = True)
+    df_aux_fut = pd.merge(df_aux_fut, df_mid_level_pred_fut.drop(['Predictions'], axis = 1), on = [date_column,higher_level], how = 'left').reset_index(drop = True)
+    
+    df_aux_fut = df_aux_fut[['Date','Total', 'Store','key_Store_Dept', 'Predictions', 'Weekly_Sales']]
+    df_aux_fut =  df_aux_fut[['Date','Total', 'Store','key_Store_Dept', 'Predictions']]
+    df_aux_fut = df_aux_fut.rename(columns = {date_column:'ds', pred_column:'y'})
+    
+    
+    df_predictions_fut, sum_matrix_fut, tags_fut = aggregate(df_aux_fut, spec)
+    
+    
+    #Next chalenge is set the id_columns the same way to merge the real values.
+    #This new dataframe will be the dataframe with real value
+    df_mid_level_pred_fut[id_column] = 'Total' + '/' + df_mid_level_pred_fut[higher_level].astype(str)    
+    df_lower_preds_future[id_column] = 'Total' +'/' + df_lower_preds_future[key_column].str.split('_').str[0] \
+        + '/' + df_lower_preds_future[key_column]
+    
+    df_forecast_total_future[id_column] = 'Total' 
+    df_forecast_total_future = df_forecast_total_future.reset_index()
+    
+    df_all = pd.concat([df_forecast_total_future, df_mid_level_pred_fut, df_lower_preds_future], axis=0).reset_index(drop = True)
+    df_all = df_all[['Date', 'Predictions', 'Weekly_Sales', 'ID_column']]
+    print("Dataframe with real values created")
+   
+   
+    #Ajust df_predictions
+    df_predictions_fut = df_predictions_fut.reset_index()
+    df_mid_high_fut = pd.concat([df_forecast_total_future, df_mid_level_pred_fut], axis=0).reset_index(drop = True)
+    df_mid_high_fut = df_mid_high_fut[['Date', 'Predictions', 'ID_column']]
+    df_mid_high_fut = df_mid_high_fut.rename(columns = {date_column:'ds', 'ID_column':'unique_id' })
+    # df_mid_high_fut['Predictions'] = df_mid_high_fut['Predictions'].astype(int) 
+
+    df_predictions_fut = df_predictions_fut.merge(df_mid_high_fut, on=['ds','unique_id'], how='left')
+    df_predictions_fut['y'] = df_predictions_fut['Predictions'].fillna(df_predictions_fut['y'])
+    df_predictions_fut = df_predictions_fut.drop(columns=['Predictions']).set_index('unique_id')
+
+    #This case df_all is Y_df. Lets ajust
+    # df_all = df_all.rename(columns = {'Date':'ds', 'Predictions':'AutoARIMA', 'Weekly_Sales':'y', 'ID_column':'unique_id'})
+    # Y_df_fut = df_all[['unique_id',	'ds',	'y']].set_index('unique_id')
+
+    #the Y_hat_df is df_predictions. Is already on format
+    Y_hat_df_fut = df_predictions_fut.rename(columns = {'y':'AutoARIMA'})
+    print('Y_df is the dataframe with unique_id, date (ds) and real values y (target_col)')
+    print('Y_hat_df is the dataframe with unique_id, date (ds) and the predictions at all levels.')
+   
+    df_all = df_all.rename(columns = {'Date':'ds', 'Predictions':'Mixed_Models', 'Weekly_Sales':'y', 'ID_column':'unique_id'})
+    Y_df = df_all[['unique_id',	'ds',	'y']].set_index('unique_id')#.rename(columns = {'y':'AutoARIMA'})
+   
+    df_reconcile_fut = rec_model.reconcile(Y_hat_df = Y_hat_df_fut,
+    S = sum_matrix_fut,  tags = tags_fut , Y_df=Y_df)
+        
+    
+    
+    pred_cols = [x for x in df_reconcile.columns if target_column not in x and 'ds' not in x]
+    
+    for col in pred_cols:
+        df_reconcile[col][df_reconcile[col] < 0] = 0
+        df_reconcile[col] = df_reconcile[col].fillna(0)
+    
+    df_reconcile = memory_aux.reduce_mem_usage(df_reconcile)
+    df_reconcile_fut = memory_aux.reduce_mem_usage(df_reconcile_fut)
+    
+    return df_reconcile, tags, df_reconcile_fut
 
 def forecast_reconciliation():
     #For the package we need make a dataframe with all time series stack and with
