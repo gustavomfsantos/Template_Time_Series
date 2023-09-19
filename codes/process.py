@@ -104,7 +104,7 @@ def forecast_all_levels():
     df_lower_preds_future = data_prep.change_pred_name(df_lower_preds_future)
     
 
-    df_lower_preds.to_csv(os.path.join(final_path, 'Forecast_results_Lower_Level.csv'))
+    df_lower_preds.to_csv(os.path.join(final_path, 'Forecast_results_Lower_Level.csv'),decimal = ',', sep = ';', index = False)
     df_lower_preds_future.to_csv(os.path.join(final_path, 'Forecast_Future_Lower_Level.csv')) 
     
     
@@ -127,8 +127,8 @@ def forecast_all_levels():
     df_mid_level_pred = data_prep.change_pred_name(df_mid_level_pred)
     df_mid_level_pred_fut = data_prep.change_pred_name(df_mid_level_pred_fut)
     
-    df_mid_level_pred.to_csv(os.path.join(final_path, 'Forecast_results_Mid_Level.csv'))
-    df_mid_level_pred_fut.to_csv(os.path.join(final_path, 'Forecast_Future_Mid_Level.csv'))
+    df_mid_level_pred.to_csv(os.path.join(final_path, 'Forecast_results_Mid_Level.csv'),decimal = ',', sep = ';', index = False)
+    df_mid_level_pred_fut.to_csv(os.path.join(final_path, 'Forecast_Future_Mid_Level.csv'),decimal = ',', sep = ';', index = False)
 
     print('Top Level Forecast - Exp Smothing')
     df_agg_all = data_prep.group_all(df_group_store, date_column, target_column)
@@ -139,20 +139,20 @@ def forecast_all_levels():
     df_forecast_total = data_prep.change_pred_name(df_forecast_total)
     df_forecast_total_future = data_prep.change_pred_name(df_forecast_total_future)
     
-    df_forecast_total.to_csv(os.path.join(final_path, 'Forecast_results_Total.csv'))
-    df_forecast_total_future.to_csv(os.path.join(final_path, 'Forecast_Future_Total.csv'))
+    df_forecast_total.to_csv(os.path.join(final_path, 'Forecast_results_Total.csv'),decimal = ',', sep = ';', index = False)
+    df_forecast_total_future.to_csv(os.path.join(final_path, 'Forecast_Future_Total.csv'),decimal = ',', sep = ';', index = False)
     df_all_levels = modeling.set_data_togheter(df_complete, df_group_store, df_agg_all, date_column, higher_level, key_column, pred_column, id_column,
                           target_column)
     ###DO the reconciliantion
     df_reconcile, tags, df_reconcile_fut = modeling.get_all_forecast(df_lower_preds, df_lower_preds_future, df_mid_level_pred, df_mid_level_pred_fut, \
                          df_forecast_total, df_forecast_total_future, date_column, id_column, pred_column, key_column, higher_level,
                          lower_level, target_column, df_all_levels)
-    df_reconcile.to_csv(os.path.join(final_path, 'Forecast_results_Reconcile.csv'))   
-    df_reconcile_fut.to_csv(os.path.join(final_path, 'Forecast_Future_Reconcile.csv')) 
+    df_reconcile.to_csv(os.path.join(final_path, 'Forecast_results_Reconcile.csv'),decimal = ',', sep = ';', index = False)   
+    df_reconcile_fut.to_csv(os.path.join(final_path, 'Forecast_Future_Reconcile.csv'),decimal = ',', sep = ';', index = False) 
     
     df_reconcile_scores = evaluation.evaluate_reconcile(df_reconcile, target_column, tags)
     
-    df_reconcile_scores.to_csv(os.path.join(final_path, 'Accuracy_Scores_Reconcile.csv')) 
+    df_reconcile_scores.to_csv(os.path.join(final_path, 'Accuracy_Scores_Reconcile.csv'),decimal = ',', sep = ';', index = False) 
     
     return 'Forecast Done and Saved!'
 
