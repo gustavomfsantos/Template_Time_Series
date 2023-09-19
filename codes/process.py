@@ -99,6 +99,7 @@ def forecast_all_levels():
                       layers, cells, drop_rate, epochs, num_workers, lower_bound, higher_bound)  
     
     df_lower_preds = data_prep.change_pred_name(df_lower_preds)
+    df_lower_preds_future = data_prep.change_pred_name(df_lower_preds_future)
     
     print('Accuracy Wheighted',1 - wmape_metric)
     df_lower_preds.to_csv(os.path.join(final_path, 'Forecast_results_Lower_Level.csv'))
@@ -122,6 +123,7 @@ def forecast_all_levels():
                       random_st, cv_option, cv_score, cv_jobs, models, stantdardize_data, 'Predict')
     
     df_mid_level_pred = data_prep.change_pred_name(df_mid_level_pred)
+    df_mid_level_pred_fut = data_prep.change_pred_name(df_mid_level_pred_fut)
     
     df_mid_level_pred.to_csv(os.path.join(final_path, 'Forecast_results_Mid_Level.csv'))
 
@@ -132,7 +134,21 @@ def forecast_all_levels():
                                                    pred_column, round_date, horizon_range) 
     
     df_forecast_total = data_prep.change_pred_name(df_forecast_total)
-   
+    df_forecast_total_future = data_prep.change_pred_name(df_forecast_total_future)
+    df_forecast_total.to_csv(os.path.join(final_path, 'Forecast_results_Total.csv'))
+    
+    df_all_levels = modeling.set_data_togheter(df_complete, df_group_store, df_agg_all, date_column, higher_level, key_column, pred_column, id_column,
+                          target_column)
+    ###DO the reconciliantion
+    df_reconcile, tags, df_reconcile_fut = modeling.get_all_forecast(df_lower_preds, df_lower_preds_future, df_mid_level_pred, df_mid_level_pred_fut, \
+                         df_forecast_total, df_forecast_total_future, date_column, id_column, pred_column, key_column, higher_level,
+                         lower_level, target_column, df_all_levels)
+    df_reconcile.to_csv(os.path.join(final_path, 'Forecast_results_Reconcile.csv'))   
+    df_reconcile_fut.to_csv(os.path.join(final_path, 'Forecast_Future_Reconcile.csv')) 
+    
+    df_reconcile_scores = evaluation.evaluate_reconcile(df_reconcile, target_column, tags)
+    df_reconcile_fut.to_csv(os.path.join(final_path, 'Accuracy_Scores_Reconcile.csv')) 
+    
     return df_lower_preds, df_lower_preds_future, df_mid_level_pred, df_mid_level_pred_fut, df_forecast_total, df_forecast_total_future
 
 # Reconciliation is the process of combining forecasts from different levels of the hierarchy in a
