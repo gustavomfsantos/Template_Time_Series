@@ -147,12 +147,12 @@ def forecast_all_levels():
     df_reconcile, tags, df_reconcile_fut = modeling.get_all_forecast(df_lower_preds, df_lower_preds_future, df_mid_level_pred, df_mid_level_pred_fut, \
                          df_forecast_total, df_forecast_total_future, date_column, id_column, pred_column, key_column, higher_level,
                          lower_level, target_column, df_all_levels)
-    df_reconcile.to_csv(os.path.join(final_path, 'Forecast_results_Reconcile.csv'),decimal = ',', sep = ';', index = False)   
-    df_reconcile_fut.to_csv(os.path.join(final_path, 'Forecast_Future_Reconcile.csv'),decimal = ',', sep = ';', index = False) 
+    df_reconcile.to_csv(os.path.join(final_path, 'Forecast_results_Reconcile.csv'),decimal = ',', sep = ';')   
+    df_reconcile_fut.to_csv(os.path.join(final_path, 'Forecast_Future_Reconcile.csv'),decimal = ',', sep = ';') 
     
     df_reconcile_scores = evaluation.evaluate_reconcile(df_reconcile, target_column, tags)
     
-    df_reconcile_scores.to_csv(os.path.join(final_path, 'Accuracy_Scores_Reconcile.csv'),decimal = ',', sep = ';', index = False) 
+    df_reconcile_scores.to_csv(os.path.join(final_path, 'Accuracy_Scores_Reconcile.csv'),decimal = ',', sep = ';') 
     
     return 'Forecast Done and Saved!'
 
